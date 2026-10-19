@@ -7,6 +7,7 @@ INSTALL_DIR="$HOME/.local/bin"
 SCRIPTS=(
     "tv-retroarch-toggle"
     "tv-xenia-toggle"
+    "tv-rpcs3-toggle"
     "tv-display-toggle"
     "tv-bigpicture-toggle"
 )
