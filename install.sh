@@ -7,7 +7,7 @@ INSTALL_DIR="$HOME/.local/bin"
 SCRIPTS=(
     "tv-retroarch-toggle"
     "tv-display-toggle"
-    "tv-bigscreen-toggle"
+    "tv-bigpicture-toggle"
 )
 
 # Check dependencies
