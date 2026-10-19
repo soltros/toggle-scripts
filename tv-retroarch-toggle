@@ -63,15 +63,42 @@ enable_tv_mode() {
   fi
 }
 
-enable_desktop_mode() {
-  # Close RetroArch before disabling the TV it was displayed on.
-  if pgrep -u "$USER" -x retroarch >/dev/null 2>&1; then
-    pkill -TERM -u "$USER" -x retroarch || true
-    for _ in {1..10}; do
-      pgrep -u "$USER" -x retroarch >/dev/null 2>&1 || break
-      sleep 0.2
-    done
+# Find RetroArch processes started directly or through a launcher.
+retroarch_pids() {
+  {
+    pgrep -u "$(id -u)" -x retroarch || true
+    pgrep -u "$(id -u)" -f '(^|[/[:space:]])retroarch([[:space:]]|$)' || true
+  } | sort -un | grep -v -x -e "$$" -e "$PPID" || true
+}
+
+stop_retroarch() {
+  local pids
+  pids="$(retroarch_pids)"
+  [[ -n "$pids" ]] || return 0
+
+  echo "Closing RetroArch (PIDs: $(echo "$pids" | paste -sd, -))..."
+  while IFS= read -r pid; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done <<< "$pids"
+
+  # Allow RetroArch to shut down normally, then force termination if necessary.
+  for _ in {1..20}; do
+    [[ -z "$(retroarch_pids)" ]] && return 0
+    sleep 0.2
+  done
+
+  pids="$(retroarch_pids)"
+  if [[ -n "$pids" ]]; then
+    echo "RetroArch didn't close gracefully; forcing termination..."
+    while IFS= read -r pid; do
+      kill -KILL "$pid" 2>/dev/null || true
+    done <<< "$pids"
   fi
+}
+
+enable_desktop_mode() {
+  # Terminate RetroArch before disabling its TV display.
+  stop_retroarch
   echo "Restoring Desktop Mode: ${LG_OUT} (2560x1440@144Hz primary) + ${ACER_OUT} (1920x1080@144Hz secondary), disabling ${TV_OUT}..."
   kscreen-doctor \
     "output.${LG_OUT}.enable" \
