@@ -1,0 +1,8 @@
+[tv-bigpicture-toggle.desktop][Global Shortcuts]
+_launch=Meta+F12
+
+[tv-display-toggle.desktop][Global Shortcuts]
+_launch=Meta+Num+/
+
+[tv-retroarch-toggle.desktop][Global Shortcuts]
+_launch=Meta+Num+*
