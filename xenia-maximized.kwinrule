@@ -1,0 +1,11 @@
+[1]
+Description=Xenia Canary - maximized
+wmclass=xenia_canary
+wmclassmatch=1
+maximizehoriz=true
+maximizehorizrule=2
+maximizevert=true
+maximizevertrule=2
+
+[General]
+count=1
