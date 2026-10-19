@@ -1,0 +1,11 @@
+[1]
+Description=RPCS3 - maximized
+wmclass=rpcs3
+wmclassmatch=1
+maximizehoriz=true
+maximizehorizrule=2
+maximizevert=true
+maximizevertrule=2
+
+[General]
+count=1
