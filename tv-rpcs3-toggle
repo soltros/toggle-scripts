@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/run/current-system/sw/bin:$HOME/.local/bin:$PATH"
+
+# Detect connectors dynamically by EDID model name (with fallback to current DP ports)
+detect_output() {
+  local pattern="$1"
+  local fallback="$2"
+  local edid_file connector
+  for edid_file in /sys/class/drm/card*-*/edid; do
+    [[ -f "$edid_file" ]] || continue
+    if grep -aq "$pattern" "$edid_file" 2>/dev/null; then
+      connector="$(basename "$(dirname "$edid_file")")"
+      connector="${connector#card*-}"
+      echo "$connector"
+      return 0
+    fi
+  done
+  echo "$fallback"
+}
+
+RPCS3_COMMAND="${RPCS3_COMMAND:-rpcs3}"
+
+TV_OUT="$(detect_output "50S431" "DP-1")"
+ACER_OUT="$(detect_output "ED320QR" "DP-2")"
+LG_OUT="$(detect_output "LG ULTRAGEAR" "DP-3")"
+
+# Check whether TV mode is currently active (TV enabled and LG disabled)
+is_tv_mode_active() {
+  kscreen-doctor -j | python3 -c '
+import json, sys
+tv_name, lg_name = sys.argv[1], sys.argv[2]
+data = json.load(sys.stdin)
+outputs = {o["name"]: o for o in data.get("outputs", [])}
+tv_enabled = outputs.get(tv_name, {}).get("enabled", False)
+lg_enabled = outputs.get(lg_name, {}).get("enabled", True)
+sys.exit(0 if (tv_enabled and not lg_enabled) else 1)
+' "$TV_OUT" "$LG_OUT"
+}
+
+enable_tv_mode() {
+  echo "Switching to TV RPCS3 Mode on ${TV_OUT} (1920x1080@60Hz)..."
+  kscreen-doctor \
+    "output.${TV_OUT}.enable" \
+    "output.${TV_OUT}.mode.1920x1080@60" \
+    "output.${TV_OUT}.position.0,0" \
+    "output.${TV_OUT}.priority.1" \
+    "output.${TV_OUT}.scale.1" \
+    "output.${LG_OUT}.disable" \
+    "output.${ACER_OUT}.disable"
+
+  sleep 1.5
+
+  notify-send -a "TV RPCS3 Mode" -i "video-television" \
+    "TV RPCS3 Mode Enabled" \
+    "TCL TV (${TV_OUT}) active at 1920x1080 @ 60Hz. Launching RPCS3..." || true
+
+  # Default to the RPCS3 executable from PATH (NixOS package or wrapper).
+  if ! command -v "$RPCS3_COMMAND" >/dev/null 2>&1 && [[ ! -x "$RPCS3_COMMAND" ]]; then
+    echo "RPCS3 executable not found: $RPCS3_COMMAND" >&2
+    restore_displays
+    return 1
+  fi
+  if [[ -n "$(rpcs3_pids)" ]]; then
+    echo "RPCS3 is already running."
+  else
+    nohup "$RPCS3_COMMAND" >/dev/null 2>&1 </dev/null &
+    disown || true
+  fi
+}
+
+rpcs3_pids() {
+  local pid comm cmd
+  while IFS= read -r pid; do
+    [[ -n "$pid" && "$pid" != "$$" && "$pid" != "$PPID" ]] || continue
+    [[ -r "/proc/$pid/comm" ]] || continue
+    comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
+    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    case "$comm" in
+      rpcs3|RPCS3|rpcs3.AppImage) printf '%s\n' "$pid" ;;
+      *) case "$cmd" in
+        *"/AppImages/rpcs3"*|*"/bin/rpcs3 "*|*"/bin/rpcs3" ) printf '%s\n' "$pid" ;;
+      esac ;;
+    esac
+  done < <(pgrep -u "$(id -u)" -f '[r]pcs3|RPCS3' || true)
+}
+
+stop_rpcs3() {
+  local pids pid
+  pids="$(rpcs3_pids)"
+  [[ -n "$pids" ]] || return 0
+  echo "Closing RPCS3..."
+  while IFS= read -r pid; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done <<< "$pids"
+  for _ in {1..20}; do
+    [[ -z "$(rpcs3_pids)" ]] && return 0
+    sleep 0.2
+  done
+  pids="$(rpcs3_pids)"
+  if [[ -n "$pids" ]]; then
+    echo "RPCS3 did not exit gracefully; force stopping it..."
+    while IFS= read -r pid; do
+      kill -KILL "$pid" 2>/dev/null || true
+    done <<< "$pids"
+  fi
+}
+
+restore_displays() {
+  kscreen-doctor \
+    "output.${LG_OUT}.enable" \
+    "output.${LG_OUT}.mode.2560x1440@144" \
+    "output.${LG_OUT}.position.0,0" \
+    "output.${LG_OUT}.priority.1" \
+    "output.${LG_OUT}.scale.1" \
+    "output.${ACER_OUT}.enable" \
+    "output.${ACER_OUT}.mode.1920x1080@144" \
+    "output.${ACER_OUT}.position.2560,0" \
+    "output.${ACER_OUT}.priority.2" \
+    "output.${ACER_OUT}.scale.1" \
+    "output.${TV_OUT}.disable"
+}
+
+enable_desktop_mode() {
+  # Terminate RPCS3 before disabling its TV display.
+  stop_rpcs3
+  echo "Restoring Desktop Mode: ${LG_OUT} (2560x1440@144Hz primary) + ${ACER_OUT} (1920x1080@144Hz secondary), disabling ${TV_OUT}..."
+  restore_displays
+
+  sleep 1
+
+  notify-send -a "TV RPCS3 Mode" -i "video-display" \
+    "Desktop Mode Restored" \
+    "LG Ultragear (1440p @ 144Hz) primary, Acer (1080p @ 144Hz) secondary, TCL TV off." || true
+
+
+}
+
+MODE="${1:-toggle}"
+
+case "$MODE" in
+  tv|on)
+    enable_tv_mode
+    ;;
+  desktop|off)
+    enable_desktop_mode
+    ;;
+  status)
+    if is_tv_mode_active; then
+      echo "Current mode: TV RPCS3 Mode (${TV_OUT} active)"
+    else
+      echo "Current mode: Desktop Mode (${LG_OUT} + ${ACER_OUT})"
+    fi
+    echo "Detected connectors: TV=${TV_OUT}, LG=${LG_OUT}, ACER=${ACER_OUT}"
+    ;;
+  toggle|*)
+    if is_tv_mode_active; then
+      enable_desktop_mode
+    else
+      enable_tv_mode
+    fi
+    ;;
+esac
