@@ -6,6 +6,7 @@ REPO="https://github.com/soltros/toggle-scripts.git"
 INSTALL_DIR="$HOME/.local/bin"
 SCRIPTS=(
     "tv-retroarch-toggle"
+    "tv-xenia-toggle"
     "tv-display-toggle"
     "tv-bigpicture-toggle"
 )
