@@ -6,3 +6,6 @@ _launch=Meta+Num+/
 
 [tv-retroarch-toggle.desktop][Global Shortcuts]
 _launch=Meta+Num+*
+
+[tv-xenia-toggle.desktop][Global Shortcuts]
+_launch=Meta+Num+-
